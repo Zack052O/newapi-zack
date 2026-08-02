@@ -1,0 +1,1020 @@
+diff --git a/controller/misc.go b/controller/misc.go
+index 7343b12..518f0d1 100644
+--- a/controller/misc.go
++++ b/controller/misc.go
+@@ -107,6 +107,7 @@ func GetStatus(c *gin.Context) {
+ 		// 模块管理配置
+ 		"HeaderNavModules":    common.OptionMap["HeaderNavModules"],
+ 		"SidebarModulesAdmin": common.OptionMap["SidebarModulesAdmin"],
++		"CustomSidebarLinks":  common.OptionMap["CustomSidebarLinks"],
+ 
+ 		"oidc_enabled":                system_setting.GetOIDCSettings().Enabled,
+ 		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,
+diff --git a/model/option.go b/model/option.go
+index e7fda52..7ee21a9 100644
+--- a/model/option.go
++++ b/model/option.go
+@@ -1,6 +1,7 @@
+ package model
+ 
+ import (
++	"fmt"
+ 	"strconv"
+ 	"strings"
+ 	"time"
+@@ -152,6 +153,7 @@ func InitOptionMap() {
+ 	common.OptionMap["AudioRatio"] = ratio_setting.AudioRatio2JSONString()
+ 	common.OptionMap["AudioCompletionRatio"] = ratio_setting.AudioCompletionRatio2JSONString()
+ 	common.OptionMap["TopUpLink"] = common.TopUpLink
++	common.OptionMap["CustomSidebarLinks"] = ""
+ 	//common.OptionMap["ChatLink"] = common.ChatLink
+ 	//common.OptionMap["ChatLink2"] = common.ChatLink2
+ 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
+@@ -212,6 +214,22 @@ func validateOptionValue(key string, value string) error {
+ 	if key == "MaxTokenAutoGroups" {
+ 		return setting.ValidateMaxTokenAutoGroups(value)
+ 	}
++	if key == "CustomSidebarLinks" {
++		return validateCustomSidebarLinks(value)
++	}
++	return nil
++}
++
++// validateCustomSidebarLinks validates that the value is a valid JSON array
++// of custom sidebar link objects. Empty string is allowed (means no links).
++func validateCustomSidebarLinks(value string) error {
++	if strings.TrimSpace(value) == "" {
++		return nil
++	}
++	var links []map[string]interface{}
++	if err := common.UnmarshalJsonStr(value, &links); err != nil {
++		return fmt.Errorf("invalid JSON format for CustomSidebarLinks: %v", err)
++	}
+ 	return nil
+ }
+ 
+diff --git a/web/src/components/layout/components/nav-group.tsx b/web/src/components/layout/components/nav-group.tsx
+index be6a152..60090c1 100644
+--- a/web/src/components/layout/components/nav-group.tsx
++++ b/web/src/components/layout/components/nav-group.tsx
+@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
+ For commercial licensing, please contact support@quantumnous.com
+ */
+ import { Link, useLocation } from '@tanstack/react-router'
+-import { ChevronRight } from 'lucide-react'
++import { ChevronRight, ExternalLink } from 'lucide-react'
+ import { type ReactNode, useState, useEffect } from 'react'
+ 
+ import { Badge } from '@/components/ui/badge'
+@@ -122,16 +122,31 @@ function NavBadge({ children }: { children: ReactNode }) {
+  */
+ function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
+   const { setOpenMobile } = useSidebar()
++  const isExternal = /^https?:\/\//.test(String(item.url))
+   return (
+     <SidebarMenuItem>
+       <SidebarMenuButton
+-        isActive={checkIsActive(href, item)}
++        isActive={!isExternal && checkIsActive(href, item)}
+         tooltip={item.title}
+-        render={<Link to={item.url} onClick={() => setOpenMobile(false)} />}
++        render={
++          isExternal ? (
++            <a
++              href={String(item.url)}
++              target='_blank'
++              rel='noopener noreferrer'
++              onClick={() => setOpenMobile(false)}
++            />
++          ) : (
++            <Link to={item.url} onClick={() => setOpenMobile(false)} />
++          )
++        }
+       >
+         {item.icon && <item.icon className='shrink-0' />}
+         <span className='min-w-0 flex-1 truncate'>{item.title}</span>
+         {item.badge && <NavBadge>{item.badge}</NavBadge>}
++        {isExternal && (
++          <ExternalLink className='ms-auto size-3 shrink-0 text-muted-foreground' />
++        )}
+       </SidebarMenuButton>
+     </SidebarMenuItem>
+   )
+diff --git a/web/src/features/system-settings/hooks/use-update-option.ts b/web/src/features/system-settings/hooks/use-update-option.ts
+index 00ef517..08cdc38 100644
+--- a/web/src/features/system-settings/hooks/use-update-option.ts
++++ b/web/src/features/system-settings/hooks/use-update-option.ts
+@@ -27,6 +27,7 @@ import type { UpdateOptionRequest } from '../types'
+ const STATUS_RELATED_KEYS = new Set([
+   'HeaderNavModules',
+   'SidebarModulesAdmin',
++  'CustomSidebarLinks',
+   'Notice',
+   'LogConsumeEnabled',
+   'QuotaPerUnit',
+diff --git a/web/src/features/system-settings/maintenance/config.ts b/web/src/features/system-settings/maintenance/config.ts
+index 0edc503..a3f562d 100644
+--- a/web/src/features/system-settings/maintenance/config.ts
++++ b/web/src/features/system-settings/maintenance/config.ts
+@@ -240,3 +240,47 @@ export function serializeSidebarModulesAdmin(
+ ): string {
+   return JSON.stringify(config)
+ }
++
++// ============================================================================
++// Custom Sidebar Links
++// ============================================================================
++
++export type CustomSidebarLink = {
++  /** Display label shown in the sidebar */
++  title: string
++  /** URL — internal path (e.g. "/pricing") or external (e.g. "https://docs.example.com") */
++  url: string
++  /** Optional lucide icon name (e.g. "BookOpen", "ExternalLink") */
++  icon?: string
++  /** Optional badge text */
++  badge?: string
++  /** Minimum role required to see this link (0=guest, 1=user, 10=admin, 100=super admin) */
++  requiredRole?: number
++}
++
++export type CustomSidebarLinksConfig = CustomSidebarLink[]
++
++export function parseCustomSidebarLinks(
++  value: string | null | undefined
++): CustomSidebarLinksConfig {
++  if (!value || value.trim() === '') return []
++  try {
++    const parsed = JSON.parse(value)
++    if (!Array.isArray(parsed)) return []
++    return parsed.filter(
++      (item): item is CustomSidebarLink =>
++        typeof item === 'object' &&
++        item !== null &&
++        typeof item.title === 'string' &&
++        typeof item.url === 'string'
++    )
++  } catch {
++    return []
++  }
++}
++
++export function serializeCustomSidebarLinks(
++  config: CustomSidebarLinksConfig
++): string {
++  return JSON.stringify(config)
++}
+diff --git a/web/src/features/system-settings/maintenance/custom-sidebar-links-section.tsx b/web/src/features/system-settings/maintenance/custom-sidebar-links-section.tsx
+new file mode 100644
+index 0000000..2f21ffa
+--- /dev/null
++++ b/web/src/features/system-settings/maintenance/custom-sidebar-links-section.tsx
+@@ -0,0 +1,389 @@
++import { zodResolver } from '@hookform/resolvers/zod'
++import { ExternalLink, GripVertical, Plus, Trash2 } from 'lucide-react'
++import { useEffect, useMemo, useState } from 'react'
++import { useFieldArray, useForm } from 'react-hook-form'
++import { useTranslation } from 'react-i18next'
++import * as z from 'zod'
++
++import { Button } from '@/components/ui/button'
++import {
++  Form,
++  FormControl,
++  FormDescription,
++  FormField,
++  FormItem,
++  FormLabel,
++  FormMessage,
++} from '@/components/ui/form'
++import { Input } from '@/components/ui/input'
++import {
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
++} from '@/components/ui/select'
++
++import { SettingsPageFormActions } from '../components/settings-page-context'
++import { SettingsSection } from '../components/settings-section'
++import { useUpdateOption } from '../hooks/use-update-option'
++import {
++  type CustomSidebarLinksConfig,
++} from './config'
++
++const linkSchema = z.object({
++  title: z.string().min(1, 'Title is required'),
++  url: z.string().min(1, 'URL is required'),
++  icon: z.string().optional().default(''),
++  badge: z.string().optional().default(''),
++  requiredRole: z.string().optional().default('0'),
++})
++
++const formSchema = z.object({
++  links: z.array(linkSchema),
++})
++
++type FormValues = z.infer<typeof formSchema>
++
++type CustomSidebarLinksSectionProps = {
++  config: CustomSidebarLinksConfig
++  initialSerialized: string
++}
++
++const ROLE_OPTIONS = [
++  { value: '0', label: 'Everyone (Guest+)' },
++  { value: '1', label: 'Logged-in users' },
++  { value: '10', label: 'Admins only' },
++  { value: '100', label: 'Super admins only' },
++]
++
++const ICON_OPTIONS = [
++  '',
++  'BookOpen',
++  'ExternalLink',
++  'Globe',
++  'Link',
++  'FileText',
++  'HelpCircle',
++  'Github',
++  'MessageSquare',
++  'Server',
++  'Cloud',
++  'Settings',
++  'Terminal',
++  'Shield',
++  'Zap',
++  'Rocket',
++  'Star',
++  'Mail',
++  'Bell',
++  'LayoutGrid',
++  'FolderGit2',
++  'Code2',
++  'BookMarked',
++  'GraduationCap',
++  'LifeBuoy',
++  'Newspaper',
++  'Rss',
++]
++
++function toFormValues(config: CustomSidebarLinksConfig): FormValues {
++  return {
++    links: config.map((link) => ({
++      title: link.title,
++      url: link.url,
++      icon: link.icon ?? '',
++      badge: link.badge ?? '',
++      requiredRole: String(link.requiredRole ?? 0),
++    })),
++  }
++}
++
++function toConfig(values: FormValues): CustomSidebarLinksConfig {
++  return values.links.map((link) => ({
++    title: link.title,
++    url: link.url,
++    icon: link.icon || undefined,
++    badge: link.badge || undefined,
++    requiredRole: Number(link.requiredRole) || 0,
++  }))
++}
++
++export function CustomSidebarLinksSection({
++  config,
++  initialSerialized,
++}: CustomSidebarLinksSectionProps) {
++  const { t } = useTranslation()
++  const updateOption = useUpdateOption()
++  const formDefaults = useMemo(() => toFormValues(config), [config])
++
++  const form = useForm<FormValues>({
++    resolver: zodResolver(formSchema),
++    defaultValues: formDefaults,
++  })
++
++  useEffect(() => {
++    form.reset(formDefaults)
++  }, [formDefaults, form])
++
++  const { fields, append, remove, move } = useFieldArray({
++    control: form.control,
++    name: 'links',
++  })
++
++  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
++
++  const onSubmit = async (values: FormValues) => {
++    const config = toConfig(values)
++    const serialized = JSON.stringify(config)
++    if (serialized === initialSerialized) {
++      return
++    }
++    await updateOption.mutateAsync({
++      key: 'CustomSidebarLinks',
++      value: serialized,
++    })
++  }
++
++  const handleDragStart = (index: number) => {
++    setDraggedIndex(index)
++  }
++
++  const handleDragOver = (e: React.DragEvent, index: number) => {
++    e.preventDefault()
++    if (draggedIndex === null || draggedIndex === index) return
++    move(draggedIndex, index)
++    setDraggedIndex(index)
++  }
++
++  const handleDragEnd = () => {
++    setDraggedIndex(null)
++  }
++
++  const isExternalUrl = (url: string) => {
++    return /^https?:\/\//.test(url)
++  }
++
++  return (
++    <SettingsSection title={t('Custom sidebar links')}>
++      <Form {...form}>
++        <form
++          onSubmit={form.handleSubmit(onSubmit)}
++          className='space-y-6'
++        >
++          <SettingsPageFormActions
++            onSave={form.handleSubmit(onSubmit)}
++            isSaving={updateOption.isPending}
++            saveLabel='Save custom links'
++          />
++
++          <FormDescription>
++            {t(
++              'Add custom links to the sidebar. Internal paths (e.g. /pricing) navigate within the app; external URLs (https://...) open in a new tab.'
++            )}
++          </FormDescription>
++
++          {fields.length === 0 && (
++            <div className='flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-8 text-center'>
++              <p className='text-sm text-muted-foreground'>
++                {t('No custom links yet. Click "Add link" to get started.')}
++              </p>
++            </div>
++          )}
++
++          <div className='space-y-3'>
++            {fields.map((field, index) => {
++              const urlValue = form.watch(`links.${index}.url`)
++              const external = isExternalUrl(urlValue || '')
++              return (
++                <div
++                  key={field.id}
++                  draggable
++                  onDragStart={() => handleDragStart(index)}
++                  onDragOver={(e) => handleDragOver(e, index)}
++                  onDragEnd={handleDragEnd}
++                  className='group relative rounded-lg border border-border bg-card p-4'
++                >
++                  <div className='mb-3 flex items-center gap-2'>
++                    <GripVertical className='size-4 cursor-grab text-muted-foreground/50 active:cursor-grabbing' />
++                    <span className='text-xs font-medium text-muted-foreground'>
++                      {t('Link')} #{index + 1}
++                    </span>
++                    {external && (
++                      <span className='flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400'>
++                        <ExternalLink className='size-2.5' />
++                        External
++                      </span>
++                    )}
++                    <Button
++                      type='button'
++                      variant='ghost'
++                      size='icon'
++                      className='ml-auto size-7 text-muted-foreground hover:text-destructive'
++                      onClick={() => remove(index)}
++                    >
++                      <Trash2 className='size-3.5' />
++                    </Button>
++                  </div>
++
++                  <div className='grid gap-3 md:grid-cols-2'>
++                    <FormField
++                      control={form.control}
++                      name={`links.${index}.title`}
++                      render={({ field: f }) => (
++                        <FormItem>
++                          <FormLabel className='text-xs'>
++                            {t('Title')}
++                          </FormLabel>
++                          <FormControl>
++                            <Input
++                              {...f}
++                              value={f.value ?? ''}
++                              placeholder='Documentation'
++                              className='h-8'
++                            />
++                          </FormControl>
++                          <FormMessage />
++                        </FormItem>
++                      )}
++                    />
++
++                    <FormField
++                      control={form.control}
++                      name={`links.${index}.url`}
++                      render={({ field: f }) => (
++                        <FormItem>
++                          <FormLabel className='text-xs'>URL</FormLabel>
++                          <FormControl>
++                            <Input
++                              {...f}
++                              value={f.value ?? ''}
++                              placeholder='/pricing or https://docs.example.com'
++                              className='h-8'
++                            />
++                          </FormControl>
++                          <FormMessage />
++                        </FormItem>
++                      )}
++                    />
++
++                    <FormField
++                      control={form.control}
++                      name={`links.${index}.icon`}
++                      render={({ field: f }) => (
++                        <FormItem>
++                          <FormLabel className='text-xs'>
++                            {t('Icon')}
++                          </FormLabel>
++                          <Select
++                            onValueChange={f.onChange}
++                            value={f.value ?? ''}
++                          >
++                            <FormControl>
++                              <SelectTrigger className='h-8'>
++                                <SelectValue placeholder='None' />
++                              </SelectTrigger>
++                            </FormControl>
++                            <SelectContent>
++                              <SelectItem value='none'>None</SelectItem>
++                              {ICON_OPTIONS.filter((i) => i !== '').map(
++                                (icon) => (
++                                  <SelectItem key={icon} value={icon}>
++                                    {icon}
++                                  </SelectItem>
++                                )
++                              )}
++                            </SelectContent>
++                          </Select>
++                          <FormMessage />
++                        </FormItem>
++                      )}
++                    />
++
++                    <FormField
++                      control={form.control}
++                      name={`links.${index}.badge`}
++                      render={({ field: f }) => (
++                        <FormItem>
++                          <FormLabel className='text-xs'>
++                            {t('Badge')} ({t('optional')})
++                          </FormLabel>
++                          <FormControl>
++                            <Input
++                              {...f}
++                              value={f.value ?? ''}
++                              placeholder='New'
++                              className='h-8'
++                            />
++                          </FormControl>
++                          <FormMessage />
++                        </FormItem>
++                      )}
++                    />
++
++                    <FormField
++                      control={form.control}
++                      name={`links.${index}.requiredRole`}
++                      render={({ field: f }) => (
++                        <FormItem>
++                          <FormLabel className='text-xs'>
++                            {t('Visible to')}
++                          </FormLabel>
++                          <Select
++                            onValueChange={f.onChange}
++                            value={f.value ?? '0'}
++                          >
++                            <FormControl>
++                              <SelectTrigger className='h-8'>
++                                <SelectValue />
++                              </SelectTrigger>
++                            </FormControl>
++                            <SelectContent>
++                              {ROLE_OPTIONS.map((opt) => (
++                                <SelectItem
++                                  key={opt.value}
++                                  value={opt.value}
++                                >
++                                  {t(opt.label)}
++                                </SelectItem>
++                              ))}
++                            </SelectContent>
++                          </Select>
++                          <FormMessage />
++                        </FormItem>
++                      )}
++                    />
++                  </div>
++                </div>
++              )
++            })}
++          </div>
++
++          <Button
++            type='button'
++            variant='outline'
++            size='sm'
++            onClick={() =>
++              append({
++                title: '',
++                url: '',
++                icon: '',
++                badge: '',
++                requiredRole: '0',
++              })
++            }
++          >
++            <Plus className='mr-2 size-4' />
++            {t('Add link')}
++          </Button>
++
++          <SettingsPageFormActions
++            onSave={form.handleSubmit(onSubmit)}
++            isSaving={updateOption.isPending}
++            saveLabel='Save custom links'
++          />
++        </form>
++      </Form>
++    </SettingsSection>
++  )
++}
+diff --git a/web/src/features/system-settings/site/index.tsx b/web/src/features/system-settings/site/index.tsx
+index 8e6f29c..be50b98 100644
+--- a/web/src/features/system-settings/site/index.tsx
++++ b/web/src/features/system-settings/site/index.tsx
+@@ -36,6 +36,7 @@ const defaultSiteSettings: SiteSettings = {
+   'legal.privacy_policy': '',
+   HeaderNavModules: '',
+   SidebarModulesAdmin: '',
++  CustomSidebarLinks: '',
+ }
+ 
+ export function SiteSettings() {
+diff --git a/web/src/features/system-settings/site/section-registry.tsx b/web/src/features/system-settings/site/section-registry.tsx
+index 02300e7..c2e5557 100644
+--- a/web/src/features/system-settings/site/section-registry.tsx
++++ b/web/src/features/system-settings/site/section-registry.tsx
+@@ -18,14 +18,17 @@ For commercial licensing, please contact support@quantumnous.com
+ */
+ import { SystemInfoSection } from '../general/system-info-section'
+ import {
++  parseCustomSidebarLinks,
+   parseHeaderNavModules,
+   parseSidebarModulesAdmin,
++  serializeCustomSidebarLinks,
+   serializeHeaderNavModules,
+   serializeSidebarModulesAdmin,
+ } from '../maintenance/config'
+ import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
+ import { NoticeSection } from '../maintenance/notice-section'
+ import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
++import { CustomSidebarLinksSection } from '../maintenance/custom-sidebar-links-section'
+ import type { SiteSettings } from '../types'
+ import { createSectionRegistry } from '../utils/section-registry'
+ 
+@@ -87,6 +90,22 @@ const SITE_SECTIONS = [
+       )
+     },
+   },
++  {
++    id: 'custom-sidebar-links',
++    titleKey: 'Custom sidebar links',
++    build: (settings: SiteSettings) => {
++      const linksConfig = parseCustomSidebarLinks(
++        settings.CustomSidebarLinks
++      )
++      const linksSerialized = serializeCustomSidebarLinks(linksConfig)
++      return (
++        <CustomSidebarLinksSection
++          config={linksConfig}
++          initialSerialized={linksSerialized}
++        />
++      )
++    },
++  },
+ ] as const
+ 
+ export type SiteSectionId = (typeof SITE_SECTIONS)[number]['id']
+diff --git a/web/src/features/system-settings/types.ts b/web/src/features/system-settings/types.ts
+index 6bb6f2d..015b3e1 100644
+--- a/web/src/features/system-settings/types.ts
++++ b/web/src/features/system-settings/types.ts
+@@ -118,6 +118,7 @@ export type SiteSettings = {
+   'legal.privacy_policy': string
+   HeaderNavModules: string
+   SidebarModulesAdmin: string
++  CustomSidebarLinks: string
+ }
+ 
+ export type AuthSettings = {
+diff --git a/web/src/hooks/use-sidebar-data.ts b/web/src/hooks/use-sidebar-data.ts
+index 40a0615..a7e31ee 100644
+--- a/web/src/hooks/use-sidebar-data.ts
++++ b/web/src/hooks/use-sidebar-data.ts
+@@ -18,146 +18,274 @@ For commercial licensing, please contact support@quantumnous.com
+ */
+ import {
+   Activity,
++  BookOpen,
+   Box,
++  Code2,
+   CreditCard,
++  ExternalLink,
+   FileText,
+   FlaskConical,
++  FolderGit2,
++  Globe,
++  GraduationCap,
++  HelpCircle,
+   Key,
+   LayoutDashboard,
++  LayoutGrid,
++  LifeBuoy,
++  Link as LinkIcon,
+   ListTodo,
++  Mail,
+   MessageSquare,
++  Newspaper,
+   Radio,
++  Rss,
++  Server,
+   ServerCog,
+   Settings,
++  Shield,
++  Star,
++  Terminal,
+   Ticket,
+   User,
+   Users,
+   Wallet,
++  Zap,
++  Rocket,
++  Bell,
+ } from 'lucide-react'
+ import { useTranslation } from 'react-i18next'
+ 
+ import { type SidebarData } from '@/components/layout/types'
++import { useStatus } from '@/hooks/use-status'
++import { useAuthStore } from '@/stores/auth-store'
+ import { ROLE } from '@/lib/roles'
+ 
++/**
++ * Map of icon names to lucide-react icon components.
++ * Used to resolve icon names from backend custom sidebar link config.
++ */
++const ICON_MAP: Record<string, React.ElementType> = {
++  BookOpen,
++  Code2,
++  ExternalLink,
++  FileText,
++  FolderGit2,
++  Globe,
++  GraduationCap,
++  HelpCircle,
++  LayoutGrid,
++  LifeBuoy,
++  Link: LinkIcon,
++  Mail,
++  MessageSquare,
++  Newspaper,
++  Rss,
++  Server,
++  ServerCog,
++  Settings,
++  Shield,
++  Star,
++  Terminal,
++  Zap,
++  Rocket,
++  Bell,
++  Activity,
++  Box,
++  Key,
++  LayoutDashboard,
++  ListTodo,
++  Radio,
++  Ticket,
++  User,
++  Users,
++  Wallet,
++  CreditCard,
++}
++
++function resolveIcon(iconName?: string): React.ElementType | undefined {
++  if (!iconName || iconName === 'none') return undefined
++  return ICON_MAP[iconName]
++}
++
++type ParsedCustomLink = {
++  title: string
++  url: string
++  icon?: string
++  badge?: string
++  requiredRole?: number
++}
++
++/**
++ * Parse and filter custom sidebar links from the status API response.
++ * Returns links visible to the current user's role.
++ */
++function useCustomSidebarLinks(): ParsedCustomLink[] {
++  const { status } = useStatus()
++  const userRole = useAuthStore((s) => s.auth.user?.role)
++  const role = userRole ?? ROLE.GUEST
++
++  const raw = status?.CustomSidebarLinks as string | null | undefined
++  if (!raw || typeof raw !== 'string' || raw.trim() === '') {
++    return []
++  }
++
++  let parsed: ParsedCustomLink[]
++  try {
++    const data = JSON.parse(raw)
++    if (!Array.isArray(data)) return []
++    parsed = data
++  } catch {
++    return []
++  }
++
++  return parsed.filter((link) => {
++    if (typeof link !== 'object' || link === null) return false
++    if (typeof link.title !== 'string' || typeof link.url !== 'string')
++      return false
++    if (link.requiredRole !== undefined && role < link.requiredRole) {
++      return false
++    }
++    return true
++  })
++}
++
+ /**
+  * Root navigation groups for the application sidebar.
+  *
+  * These are shown when the URL does not match any nested sidebar view
+  * registered in `layout/lib/sidebar-view-registry.ts`.
++ *
++ * Custom sidebar links from the backend `CustomSidebarLinks` option are
++ * appended as a dedicated "Links" group at the end.
+  */
+ export function useSidebarData(): SidebarData {
+   const { t } = useTranslation()
++  const customLinks = useCustomSidebarLinks()
+ 
+-  return {
+-    navGroups: [
+-      {
+-        id: 'chat',
+-        title: t('Chat'),
+-        items: [
+-          {
+-            title: t('Playground'),
+-            url: '/playground',
+-            icon: FlaskConical,
+-          },
+-          {
+-            title: t('Chat'),
+-            icon: MessageSquare,
+-            type: 'chat-presets',
+-          },
+-        ],
+-      },
+-      {
+-        id: 'general',
+-        title: t('General'),
+-        items: [
+-          {
+-            title: t('Overview'),
+-            url: '/dashboard/overview',
+-            icon: Activity,
+-          },
+-          {
+-            title: t('Dashboard'),
+-            url: '/dashboard/models',
+-            icon: LayoutDashboard,
+-          },
+-          {
+-            title: t('API Keys'),
+-            url: '/keys',
+-            icon: Key,
+-          },
+-          {
+-            title: t('Usage Logs'),
+-            url: '/usage-logs/common',
+-            icon: FileText,
+-          },
+-          {
+-            title: t('Task Logs'),
+-            url: '/usage-logs/task',
+-            activeUrls: ['/usage-logs/drawing'],
+-            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
+-            icon: ListTodo,
+-          },
+-        ],
+-      },
+-      {
+-        id: 'personal',
+-        title: t('Personal'),
+-        items: [
+-          {
+-            title: t('Wallet'),
+-            url: '/wallet',
+-            icon: Wallet,
+-          },
+-          {
+-            title: t('Profile'),
+-            url: '/profile',
+-            icon: User,
+-          },
+-        ],
+-      },
+-      {
+-        id: 'admin',
+-        title: t('Admin'),
+-        items: [
+-          {
+-            title: t('Channels'),
+-            url: '/channels',
+-            icon: Radio,
+-          },
+-          {
+-            title: t('Models'),
+-            url: '/models/metadata',
+-            icon: Box,
+-          },
+-          {
+-            title: t('Users'),
+-            url: '/users',
+-            icon: Users,
+-          },
+-          {
+-            title: t('Redemption Codes'),
+-            url: '/redemption-codes',
+-            icon: Ticket,
+-          },
+-          {
+-            title: t('Subscriptions'),
+-            url: '/subscriptions',
+-            icon: CreditCard,
+-          },
+-          {
+-            title: t('System Info'),
+-            url: '/system-info',
+-            icon: ServerCog,
+-            requiredRole: ROLE.SUPER_ADMIN,
+-          },
+-          {
+-            title: t('System Settings'),
+-            url: '/system-settings/site',
+-            activeUrls: ['/system-settings'],
+-            icon: Settings,
+-          },
+-        ],
+-      },
+-    ],
++  const navGroups = [
++    {
++      id: 'chat',
++      title: t('Chat'),
++      items: [
++        {
++          title: t('Playground'),
++          url: '/playground',
++          icon: FlaskConical,
++        },
++        {
++          title: t('Chat'),
++          icon: MessageSquare,
++          type: 'chat-presets' as const,
++        },
++      ],
++    },
++    {
++      id: 'general',
++      title: t('General'),
++      items: [
++        {
++          title: t('Overview'),
++          url: '/dashboard/overview',
++          icon: Activity,
++        },
++        {
++          title: t('Dashboard'),
++          url: '/dashboard/models',
++          icon: LayoutDashboard,
++        },
++        {
++          title: t('API Keys'),
++          url: '/keys',
++          icon: Key,
++        },
++        {
++          title: t('Usage Logs'),
++          url: '/usage-logs/common',
++          icon: FileText,
++        },
++        {
++          title: t('Task Logs'),
++          url: '/usage-logs/task',
++          activeUrls: ['/usage-logs/drawing'],
++          configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
++          icon: ListTodo,
++        },
++      ],
++    },
++    {
++      id: 'personal',
++      title: t('Personal'),
++      items: [
++        {
++          title: t('Wallet'),
++          url: '/wallet',
++          icon: Wallet,
++        },
++        {
++          title: t('Profile'),
++          url: '/profile',
++          icon: User,
++        },
++      ],
++    },
++    {
++      id: 'admin',
++      title: t('Admin'),
++      items: [
++        {
++          title: t('Channels'),
++          url: '/channels',
++          icon: Radio,
++        },
++        {
++          title: t('Models'),
++          url: '/models/metadata',
++          icon: Box,
++        },
++        {
++          title: t('Users'),
++          url: '/users',
++          icon: Users,
++        },
++        {
++          title: t('Redemption Codes'),
++          url: '/redemption-codes',
++          icon: Ticket,
++        },
++        {
++          title: t('Subscriptions'),
++          url: '/subscriptions',
++          icon: CreditCard,
++        },
++        {
++          title: t('System Info'),
++          url: '/system-info',
++          icon: ServerCog,
++          requiredRole: ROLE.SUPER_ADMIN,
++        },
++        {
++          title: t('System Settings'),
++          url: '/system-settings/site',
++          activeUrls: ['/system-settings'],
++          icon: Settings,
++        },
++      ],
++    },
++  ]
++
++  if (customLinks.length > 0) {
++    navGroups.push({
++      id: 'custom-links',
++      title: t('Links'),
++      items: customLinks.map((link) => ({
++        title: link.title,
++        url: link.url,
++        icon: resolveIcon(link.icon),
++        badge: link.badge,
++      })),
++    })
+   }
++
++  return { navGroups }
+ }
