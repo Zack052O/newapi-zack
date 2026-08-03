@@ -51,10 +51,10 @@ type CustomSidebarLinksSectionProps = {
 }
 
 const ROLE_OPTIONS = [
-  { value: '0', label: 'Everyone (Guest+)' },
-  { value: '1', label: 'Logged-in users' },
-  { value: '10', label: 'Admins only' },
-  { value: '100', label: 'Super admins only' },
+  { value: '0', label: '所有人' },
+  { value: '1', label: '登录用户' },
+  { value: '10', label: '仅管理员' },
+  { value: '100', label: '仅超级管理员' },
 ]
 
 const ICON_OPTIONS = [
@@ -165,7 +165,7 @@ export function CustomSidebarLinksSection({
   }
 
   return (
-    <SettingsSection title={t('Custom sidebar links')}>
+    <SettingsSection title={t('自定义侧边栏链接')}>
       <Form {...form}>
         <form
           onSubmit={form.handleSubmit(onSubmit)}
@@ -174,19 +174,19 @@ export function CustomSidebarLinksSection({
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
-            saveLabel='Save custom links'
+            saveLabel='保存'
           />
 
           <FormDescription>
             {t(
-              'Add custom links to the sidebar. Internal paths (e.g. /pricing) navigate within the app; external URLs (https://...) open in a new tab.'
+              '在侧边栏添加自定义链接。内部路径（如 /pricing）在应用内导航；外部链接（https://...）在新标签页打开。'
             )}
           </FormDescription>
 
           {fields.length === 0 && (
             <div className='flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-8 text-center'>
               <p className='text-sm text-muted-foreground'>
-                {t('No custom links yet. Click "Add link" to get started.')}
+                {t('还没有自定义链接，点击"添加链接"开始')}
               </p>
             </div>
           )}
@@ -207,7 +207,7 @@ export function CustomSidebarLinksSection({
                   <div className='mb-3 flex items-center gap-2'>
                     <GripVertical className='size-4 cursor-grab text-muted-foreground/50 active:cursor-grabbing' />
                     <span className='text-xs font-medium text-muted-foreground'>
-                      {t('Link')} #{index + 1}
+                      {t('链接')} #{index + 1}
                     </span>
                     {external && (
                       <span className='flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400'>
@@ -233,13 +233,13 @@ export function CustomSidebarLinksSection({
                       render={({ field: f }) => (
                         <FormItem>
                           <FormLabel className='text-xs'>
-                            {t('Title')}
+                            {t('标题')}
                           </FormLabel>
                           <FormControl>
                             <Input
                               {...f}
                               value={f.value ?? ''}
-                              placeholder='Documentation'
+                              placeholder='例如：文档'
                               className='h-8'
                             />
                           </FormControl>
@@ -258,7 +258,7 @@ export function CustomSidebarLinksSection({
                             <Input
                               {...f}
                               value={f.value ?? ''}
-                              placeholder='/pricing or https://docs.example.com'
+                              placeholder='/pricing 或 https://example.com'
                               className='h-8'
                             />
                           </FormControl>
@@ -273,7 +273,7 @@ export function CustomSidebarLinksSection({
                       render={({ field: f }) => (
                         <FormItem>
                           <FormLabel className='text-xs'>
-                            {t('Icon')}
+                            {t('图标')}
                           </FormLabel>
                           <Select
                             onValueChange={f.onChange}
@@ -281,11 +281,11 @@ export function CustomSidebarLinksSection({
                           >
                             <FormControl>
                               <SelectTrigger className='h-8'>
-                                <SelectValue placeholder='None' />
+                                <SelectValue placeholder='无' />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value='none'>None</SelectItem>
+                              <SelectItem value='none'>无</SelectItem>
                               {ICON_OPTIONS.filter((i) => i !== '').map(
                                 (icon) => (
                                   <SelectItem key={icon} value={icon}>
@@ -306,13 +306,13 @@ export function CustomSidebarLinksSection({
                       render={({ field: f }) => (
                         <FormItem>
                           <FormLabel className='text-xs'>
-                            {t('Badge')} ({t('optional')})
+                            {t('徽章')} ({t('可选')})
                           </FormLabel>
                           <FormControl>
                             <Input
                               {...f}
                               value={f.value ?? ''}
-                              placeholder='New'
+                              placeholder='新'
                               className='h-8'
                             />
                           </FormControl>
@@ -327,7 +327,7 @@ export function CustomSidebarLinksSection({
                       render={({ field: f }) => (
                         <FormItem>
                           <FormLabel className='text-xs'>
-                            {t('Visible to')}
+                            {t('可见范围')}
                           </FormLabel>
                           <Select
                             onValueChange={f.onChange}
@@ -374,7 +374,7 @@ export function CustomSidebarLinksSection({
             }
           >
             <Plus className='mr-2 size-4' />
-            {t('Add link')}
+            {t('添加链接')}
           </Button>
 
           <SettingsPageFormActions

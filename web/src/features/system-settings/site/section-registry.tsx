@@ -92,7 +92,7 @@ const SITE_SECTIONS = [
   },
   {
     id: 'custom-sidebar-links',
-    titleKey: 'Custom sidebar links',
+    titleKey: '自定义侧边栏链接',
     build: (settings: SiteSettings) => {
       const linksConfig = parseCustomSidebarLinks(
         settings.CustomSidebarLinks

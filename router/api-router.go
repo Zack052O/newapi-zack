@@ -1,8 +1,10 @@
 package router
 
 import (
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/relaykit/types"
 
 	// Import oauth package to register providers via init()
 	_ "github.com/QuantumNous/new-api/oauth"
@@ -246,6 +248,32 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.DELETE("/:id", controller.DeleteToken)
 			tokenRoute.POST("/batch", controller.DeleteTokenBatch)
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
+		}
+
+		drawRoute := apiRouter.Group("/draw")
+		drawRoute.Use(middleware.UserAuth())
+		{
+			drawRoute.GET("/history", controller.GetDrawHistory)
+			drawRoute.DELETE("/history", controller.DeleteDrawHistory)
+			drawRoute.GET("/images/:id", controller.GetDrawImage)
+			drawRoute.DELETE("/images/:id", controller.DeleteDrawImage)
+			drawRoute.GET(
+				"/models",
+				middleware.DrawTokenAuth("/v1/models"),
+				func(c *gin.Context) {
+					controller.ListModels(c, constant.ChannelTypeOpenAI)
+				},
+			)
+			drawRoute.POST(
+				"/generations",
+				middleware.DrawTokenAuth("/v1/images/generations"),
+				middleware.PersistDrawResponse(),
+				middleware.ModelRequestRateLimit(),
+				middleware.Distribute(),
+				func(c *gin.Context) {
+					controller.Relay(c, types.RelayFormatOpenAIImage)
+				},
+			)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

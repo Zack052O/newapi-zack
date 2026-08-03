@@ -44,6 +44,7 @@ import {
   ServerCog,
   Settings,
   Shield,
+  Sparkles,
   Star,
   Terminal,
   Ticket,
@@ -172,6 +173,11 @@ export function useSidebarData(): SidebarData {
           title: t('Playground'),
           url: '/playground',
           icon: FlaskConical,
+        },
+        {
+          title: t('画图广场'),
+          url: '/draw',
+          icon: Sparkles,
         },
         {
           title: t('Chat'),
