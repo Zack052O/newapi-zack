@@ -1,0 +1,33 @@
+version: '3.4'
+
+services:
+  new-api:
+    build: .
+    container_name: newapi-zack
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "3050:3000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Shanghai
+      - ERROR_LOG_ENABLED=true
+      - BATCH_UPDATE_ENABLED=true
+      - NODE_NAME=newapi-zack-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - newapi-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  newapi-network:
+    driver: bridge
